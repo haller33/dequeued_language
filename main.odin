@@ -142,20 +142,22 @@ bc_dcreate :: proc ( outside_instruction : ST_INS_Flags = ST_INS_Flags.NIL_INS, 
 }
 
 
-interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]string {
+interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dynamic]string, [dynamic]int) {
 
     dy_atoms : [dynamic]string
+    dy_lines_context : [dynamic]int
+
+    idx : int = 1
     
     data, ok := os.read_entire_file(file_path_name, context.allocator)
     if !ok {
 	// could not read file
 	fmt.println("cannot read file")
-	return [dynamic]string { "" }
+	return [dynamic]string { "" }, [dynamic]int {}
     }
     // defer delete(data, context.allocator)
     
     it := string(data)
-
 
     tmp_string : [dynamic] string
     defer delete ( tmp_string )
@@ -168,6 +170,7 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
     has_simbol : bool = false
     in_string : bool = false
     in_simbol : bool = false
+
     
     for line in strings.split_lines_iterator(&it) {
 	if strings.contains ( line, "\"" ) {
@@ -183,6 +186,7 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
 		append ( &tmp_simbol, atomic )
 	    } else if !has_string && !in_string && !has_simbol {
 		append ( &dy_atoms, strings.trim_space ( atomic ) )
+		append ( &dy_lines_context, idx )
 	    } else {
 		if strings.contains ( atomic, "\'" ) {
 		    append ( &tmp_simbol, atomic )
@@ -190,6 +194,7 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
 		} else if in_string && strings.contains ( atomic, "\"" ) {
 		    append ( &tmp_string, atomic )
 		    append ( &dy_atoms, strings.trim_space ( strings.concatenate ( tmp_string[:] ) ) )
+		    append ( &dy_lines_context, idx )
 		    tmp_string = {""}
 		    in_string = false
 		} else if in_string || strings.contains ( atomic, "\"" ) {
@@ -197,6 +202,7 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
 		    in_string = true
 		} else {
 		    append ( &dy_atoms, strings.trim_space ( atomic ) )
+		    append ( &dy_lines_context, idx )
 		}
 	    }
 
@@ -208,6 +214,7 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
 
 	if in_simbol {
 	    append ( &dy_atoms, strings.trim_space ( strings.concatenate ( tmp_simbol[:] ) ) )
+	    append ( &dy_lines_context, idx )
 	    in_simbol = false
 	}   
 	
@@ -215,9 +222,10 @@ interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]strin
 	has_string = false
 	in_string = false
 	in_simbol = false
+	idx = idx + 1
     }
     
-    return dy_atoms
+    return dy_atoms, dy_lines_context
 }
 
 
@@ -238,21 +246,24 @@ st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
 //    return ST_Data {}
 }
 
-parser :: proc ( file_path : string, bytecode : qu.Queue ( ST_Bytecode ) ) {
+parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 
-    return_data_atoms : = interpret_broke_by_newline ( file_path )
+    return_data_atoms, lines_idx : = interpret_broke_by_newline_and_space ( file_path )
     defer delete ( return_data_atoms )
 
-    FIRST_BYTE_STRING_REPRESENT :: 34
-    FIRST_BYTE_SIMBOL_REPRESENT :: 39
+    FIRST_BYTE_RUNE_STRING_REPRESENT :: 34
+    FIRST_BYTE_RUNE_SIMBOL_REPRESENT :: 39
 
     for atom, idx in return_data_atoms {
 
+	if DEBUG_MODE {
+	    fmt.println ( "l ", lines_idx[idx], " -- ", atom )
+	}
 	// if strings.compare ( "push", atom ) == 0 {
-	if atom[0] == FIRST_BYTE_STRING_REPRESENT { // String
+	if atom[0] == FIRST_BYTE_RUNE_STRING_REPRESENT { // String
 	    // qu.push_front ( &ring_data, st_dcreate ( atom, idx ) )
-	    bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
-	} else if atom[0] == FIRST_BYTE_SIMBOL_REPRESENT { // Simbol // TODOOO
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
+	} else if atom[0] == FIRST_BYTE_RUNE_SIMBOL_REPRESENT { // Simbol // TODOOO
 	    // bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
 	} else if strings.compare ( "load", atom ) == 0 {
 	    // do nothing
@@ -295,7 +306,8 @@ parser :: proc ( file_path : string, bytecode : qu.Queue ( ST_Bytecode ) ) {
 	} else if strings.compare ( "true", atom ) == 0 {
 	} else if strings.compare ( "false", atom ) == 0 {
 
-	} else if strings.compare ( "write", atom ) == 0 {    
+	} else if strings.compare ( "write", atom ) == 0 {
+	    
 	} else if strings.compare ( "symb", atom ) == 0 {
 	} else if strings.compare ( ".", atom ) == 0 {
 	} else if strings.compare ( "nop", atom ) == 0 {
@@ -324,14 +336,17 @@ queue_ring_language :: proc () {
 
     qu.init ( &ring_bytecode, MIN_INSTRUCTION_SIZE )
     defer qu.destroy ( &ring_bytecode )
-
     
     ring_data := qu.Queue ( ST_Data ){}
     
     qu.init ( &ring_data, MIN_RING_SIZE )
     defer qu.destroy ( &ring_data )
 
-    parser ( "code.deque", ring_bytecode )
+    parser ( "code.deque", &ring_bytecode )
+
+    fmt.println ( qu.cap ( ring_bytecode ) )
+    fmt.println ( qu.len ( ring_bytecode ) )
+    fmt.println ( "data : ", qu.peek_front ( &ring_bytecode )^.param.value )
     
 }
 
