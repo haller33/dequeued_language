@@ -2,10 +2,21 @@ package dequeue
 
 import "core:fmt"
 import "core:mem"
+import "core:os"
+import "core:strings"
+import strc "core:strconv"
 import qu "core:container/queue"
 
+MIN_RING_SIZE :: 64
+MIN_INSTRUCTION_SIZE :: 32
+MAX_STRING_SIZE :: 64
+
+DEBUG_MODE :: false
+
+raw_value :: distinct union {int, bool, string, f32}
+
 ST_INS_Flags :: enum {
-    // instructions
+    // instructions with queue
     BC_PUSH_VAL,
     BC_LOAD_VAL,
     BC_DROP_VAL,
@@ -38,9 +49,13 @@ ST_INS_Flags :: enum {
     END_WHILE,
     LESSTHAN_VAL,
     EQUALTHAN_VAL,
+    /// metafisic stuff (eval - applay)
+    VALUE_VAL,
     APPLY_PROCEDURE,
+    EVAL_PROCEDURE,
     NOT_VAL,
     // special structions
+    WRITE,
     DO_SYMBOL,
     DOT_STACK,
     DOT_BYTECODE,
@@ -50,6 +65,7 @@ ST_INS_Flags :: enum {
     DUP_LAST_INSTRUCTION,
     ROT_LAST_INSTRUCTION,
     END_INSTRUCTION,
+    NIL_INS,
 }
 
 ST_Flags :: enum {
@@ -67,7 +83,7 @@ ST_Flags :: enum {
 ST_Data :: struct {
     
     enable : bool,
-    value : union {int, bool, string},
+    value : raw_value,
     arg : ST_Flags,
     line : int,
 }
@@ -75,7 +91,7 @@ ST_Data :: struct {
 ST_Bytecode :: struct {
     
     enable : bool,
-    Instruction : ST_INS_Flags,
+    instruction : ST_INS_Flags,
     param : ST_Data,
     line : int,
 }
@@ -86,14 +102,14 @@ Error :: struct {
     place : string,
     line : int,
     reason : string,
-    value_expected : union {int, bool, string},
-    value_get : union {int, bool, string},
+    value_expected : raw_value,
+    value_get : raw_value,
     data_st : ST_Data,
 }
 
 
 
-st_dset :: proc ( tmp : ST_Data, value : union {int, bool, string} ) -> ST_Data {
+st_dset :: proc ( tmp : ST_Data, value : raw_value ) -> ST_Data {
 
     new_data : ST_Data
     
@@ -103,28 +119,112 @@ st_dset :: proc ( tmp : ST_Data, value : union {int, bool, string} ) -> ST_Data 
 }
 
 
-st_dcreate :: proc (arg_c : union {int, bool, string}, line_of : int = 0) -> ST_Data {
+st_dcreate :: proc (arg_c : raw_value, line_of : int = 0) -> ST_Data {
 
-    switch in arg_c {
+    #partial switch in arg_c {
 
     case int: return ST_Data{ value = arg_c, arg = ST_Flags.ST_NUM, enable = true, line = line_of }
     case bool: return ST_Data{ value = arg_c, arg = ST_Flags.ST_BOOL, enable = true, line = line_of }
     case string: return ST_Data{ value = arg_c, arg = ST_Flags.ST_ARG, enable = true, line = line_of }
+    case :
 				      
     }
     return ST_Data { enable = true, value = false, arg = ST_Flags.ST_NIL}
 }
 
+bc_dcreate :: proc ( outside_instruction : ST_INS_Flags = ST_INS_Flags.NIL_INS, outside_param : ST_Data, line_of : int = 0) -> ST_Bytecode {
 
-parser :: proc () {
+    if ! ( outside_instruction == ST_INS_Flags.NIL_INS ) {
 
-    
+	return ST_Bytecode { enable = true, instruction = outside_instruction, param = outside_param, line = line_of }
+    }
+    return ST_Bytecode{}
 }
 
-st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
 
+interpret_broke_by_newline :: proc ( file_path_name : string ) -> [dynamic]string {
+
+    dy_atoms : [dynamic]string
     
-    value_sum : union {int, bool, string}
+    data, ok := os.read_entire_file(file_path_name, context.allocator)
+    if !ok {
+	// could not read file
+	fmt.println("cannot read file")
+	return [dynamic]string { "" }
+    }
+    // defer delete(data, context.allocator)
+    
+    it := string(data)
+
+
+    tmp_string : [dynamic] string
+    defer delete ( tmp_string )
+
+    tmp_simbol : [dynamic] string
+    defer delete ( tmp_simbol )
+    
+    
+    has_string : bool = false
+    has_simbol : bool = false
+    in_string : bool = false
+    in_simbol : bool = false
+    
+    for line in strings.split_lines_iterator(&it) {
+	if strings.contains ( line, "\"" ) {
+
+	    has_string = true
+	}
+	if strings.contains ( line, "\'" ) {
+	    has_simbol = true
+	}
+	for atomic in strings.split_after(line, " ") {
+
+	    if in_simbol {
+		append ( &tmp_simbol, atomic )
+	    } else if !has_string && !in_string && !has_simbol {
+		append ( &dy_atoms, strings.trim_space ( atomic ) )
+	    } else {
+		if strings.contains ( atomic, "\'" ) {
+		    append ( &tmp_simbol, atomic )
+		    in_simbol = true
+		} else if in_string && strings.contains ( atomic, "\"" ) {
+		    append ( &tmp_string, atomic )
+		    append ( &dy_atoms, strings.trim_space ( strings.concatenate ( tmp_string[:] ) ) )
+		    tmp_string = {""}
+		    in_string = false
+		} else if in_string || strings.contains ( atomic, "\"" ) {
+		    append ( &tmp_string, atomic )
+		    in_string = true
+		} else {
+		    append ( &dy_atoms, strings.trim_space ( atomic ) )
+		}
+	    }
+
+	    when DEBUG_MODE {
+		fmt.println ( atomic, "- " , has_string, " - ", in_string, " # ", has_simbol, " - ", in_simbol )
+	    }
+	}
+
+
+	if in_simbol {
+	    append ( &dy_atoms, strings.trim_space ( strings.concatenate ( tmp_simbol[:] ) ) )
+	    in_simbol = false
+	}   
+	
+	has_simbol = false
+	has_string = false
+	in_string = false
+	in_simbol = false
+    }
+    
+    return dy_atoms
+}
+
+
+
+st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
+    
+    value_sum : raw_value
     flag_error : bool = false
 
     value_one_digit := value_one.value.(int)
@@ -138,19 +238,110 @@ st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
 //    return ST_Data {}
 }
 
-main_two :: proc () {
+parser :: proc ( file_path : string, bytecode : qu.Queue ( ST_Bytecode ) ) {
+
+    return_data_atoms : = interpret_broke_by_newline ( file_path )
+    defer delete ( return_data_atoms )
+
+    FIRST_BYTE_STRING_REPRESENT :: 34
+    FIRST_BYTE_SIMBOL_REPRESENT :: 39
+
+    for atom, idx in return_data_atoms {
+
+	// if strings.compare ( "push", atom ) == 0 {
+	if atom[0] == FIRST_BYTE_STRING_REPRESENT { // String
+	    // qu.push_front ( &ring_data, st_dcreate ( atom, idx ) )
+	    bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
+	} else if atom[0] == FIRST_BYTE_SIMBOL_REPRESENT { // Simbol // TODOOO
+	    // bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
+	} else if strings.compare ( "load", atom ) == 0 {
+	    // do nothing
+	} else if strings.compare ( "drop", atom ) == 0 {
+	} else if strings.compare ( "2drop", atom ) == 0 {
+	} else if strings.compare ( "dup", atom ) == 0 {
+	} else if strings.compare ( "2dup", atom ) == 0 {
+	} else if strings.compare ( "swap", atom ) == 0 {
+	} else if strings.compare ( "2swap", atom ) == 0 {
+	} else if strings.compare ( "over", atom ) == 0 {
+	} else if strings.compare ( "rot", atom ) == 0 {
+	} else if strings.compare ( "hrot", atom ) == 0 {
+
+	    // inverted commads
+	} else if strings.compare ( "!load", atom ) == 0 {
+	} else if strings.compare ( "!drop", atom ) == 0 {
+	} else if strings.compare ( "!2drop", atom ) == 0 {
+	} else if strings.compare ( "!dup", atom ) == 0 {
+	} else if strings.compare ( "!2dup", atom ) == 0 {
+	} else if strings.compare ( "!swap", atom ) == 0 {
+	} else if strings.compare ( "!2swap", atom ) == 0 {
+	} else if strings.compare ( "!over", atom ) == 0 {
+	} else if strings.compare ( "!rot", atom ) == 0 {
+	} else if strings.compare ( "!hrot", atom ) == 0 {
+
+	    
+	} else if strings.compare ( "dot", atom ) == 0 {
+
+
+	} else if strings.compare ( "do", atom ) == 0 {
+	} else if strings.compare ( "end", atom ) == 0 {
+
+	} else if strings.compare ( "add", atom ) == 0 {
+	} else if strings.compare ( "mult", atom ) == 0 {
+	} else if strings.compare ( "sub", atom ) == 0 {
+	} else if strings.compare ( "while", atom ) == 0 {
+	} else if strings.compare ( "if", atom ) == 0 {
+	    
+	} else if strings.compare ( "not", atom ) == 0 {
+	} else if strings.compare ( "true", atom ) == 0 {
+	} else if strings.compare ( "false", atom ) == 0 {
+
+	} else if strings.compare ( "write", atom ) == 0 {    
+	} else if strings.compare ( "symb", atom ) == 0 {
+	} else if strings.compare ( ".", atom ) == 0 {
+	} else if strings.compare ( "nop", atom ) == 0 {
+	    /// DO NOTHING
+	} else if strings.compare ( ":end", atom ) == 0 {
+
+	    
+	} else if type_of ( strc.atoi( atom ) ) == int {
+	    when DEBUG_MODE {
+		fmt.println ("digit :: ", strc.atoi( atom ) )
+	    }
+	    
+	} else {
+	    fmt.println ("Error")
+	    fmt.println ("linha :: ", atom, ":",idx)
+	}
+    }
+    
+    fmt.println ( return_data_atoms )
+}
+
+
+queue_ring_language :: proc () {
+    
+    ring_bytecode := qu.Queue ( ST_Bytecode ){}
+
+    qu.init ( &ring_bytecode, MIN_INSTRUCTION_SIZE )
+    defer qu.destroy ( &ring_bytecode )
 
     
+    ring_data := qu.Queue ( ST_Data ){}
+    
+    qu.init ( &ring_data, MIN_RING_SIZE )
+    defer qu.destroy ( &ring_data )
 
-    union_maybe ();
+    parser ( "code.deque", ring_bytecode )
+    
 }
+
 
 example_usage_queue :: proc () {
 
     
     myQueue_Data := qu.Queue ( ST_Data ){}
     
-    qu.init ( &myQueue_Data )
+    qu.init ( &myQueue_Data, MIN_RING_SIZE )
     defer qu.destroy ( &myQueue_Data )
     
     qu.push_front ( &myQueue_Data, st_dcreate ( 1, 0 ) )
@@ -179,6 +370,15 @@ example_usage_queue :: proc () {
 
 }
 
+
+main :: proc () {
+
+    queue_ring_language ()
+
+    // test : [dynamic]string = {"some", "stuff", "goingon" }
+    // fmt.println ( strings.concatenate(test[:]) )
+    // example_usage_queue () ;
+}
 
 example_union_maybe :: proc() {
 	fmt.println("\n#union based maybe")
