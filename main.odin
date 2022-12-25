@@ -127,7 +127,7 @@ st_dcreate :: proc (arg_c : raw_value, line_of : int = 0) -> ST_Data {
     case bool: return ST_Data{ value = arg_c, arg = ST_Flags.ST_BOOL, enable = true, line = line_of }
     case string: return ST_Data{ value = arg_c, arg = ST_Flags.ST_ARG, enable = true, line = line_of }
     case :
-				      
+
     }
     return ST_Data { enable = true, value = false, arg = ST_Flags.ST_NIL}
 }
