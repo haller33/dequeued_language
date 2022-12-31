@@ -15,6 +15,8 @@ DEBUG_MODE :: false
 
 raw_value :: distinct union {int, bool, string, f32}
 
+TOTAL_INSTRUCTIONS :: 47
+
 ST_INS_Flags :: enum {
     // instructions with queue
     BC_PUSH_VAL,
@@ -26,6 +28,7 @@ ST_INS_Flags :: enum {
     BC_SWAP_VAL,
     BC_TWO_SWAP_VAL,
     BC_OVER_VAL,
+    BC_ROT_VAL,
     BC_TWO_ROT_VAL,
     BC_HALF_ROT_VAL,
     // inverse instructions ( rest of queue ~ end of queue )
@@ -38,11 +41,12 @@ ST_INS_Flags :: enum {
     BC_IN_SWAP_VAL,
     BC_IN_TWO_SWAP_VAL,
     BC_IN_OVER_VAL,
+    BC_IN_ROT_VAL,
     BC_IN_TWO_ROT_VAL,
     BC_IN_HALF_ROT_VAL,
     // operations on the "stack" ~ queue
     ADD,
-    PULTIPLY,
+    MULTIPLY,
     SUBTRACT,
     RETURN,
     WHILE_LOOP,
@@ -53,10 +57,10 @@ ST_INS_Flags :: enum {
     VALUE_VAL,
     APPLY_PROCEDURE,
     EVAL_PROCEDURE,
-    NOT_VAL,
     // special structions
-    WRITE,
+    DO_WRITE,
     DO_SYMBOL,
+    DO_NOT,
     DOT_STACK,
     DOT_BYTECODE,
     NO_OP,
@@ -119,6 +123,11 @@ st_dset :: proc ( tmp : ST_Data, value : raw_value ) -> ST_Data {
 }
 
 
+st_dcreate_nil :: proc (line_of : int = 0) -> ST_Data {
+
+    return ST_Data{ value = false, arg = ST_Flags.ST_NIL, enable = true, line = line_of }
+}
+
 st_dcreate :: proc (arg_c : raw_value, line_of : int = 0, symb : ST_Flags = ST_Flags.ST_NIL) -> ST_Data {
 
     if symb == ST_Flags.ST_NIL {
@@ -144,7 +153,6 @@ bc_dcreate :: proc ( outside_instruction : ST_INS_Flags = ST_INS_Flags.NIL_INS, 
     }
     return ST_Bytecode{}
 }
-
 
 interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dynamic]string, [dynamic]int) {
 
@@ -258,8 +266,12 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
     FIRST_BYTE_RUNE_STRING_REPRESENT :: 34
     FIRST_BYTE_RUNE_SIMBOL_REPRESENT :: 39
 
+    // assert ( TOTAL_INSTRUCTIONS == len ( return_data_atoms ) ) // TODO ADD ASSERTION OF NUMBER OF INSTRUCTIONS
+
     for atom, idx in return_data_atoms {
 
+	fmt.println ( atom )
+	
 	if DEBUG_MODE {
 	    fmt.println ( "l ", lines_idx[idx], " -- ", atom )
 	}
@@ -269,63 +281,98 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if atom[0] == FIRST_BYTE_RUNE_SIMBOL_REPRESENT { 
 	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
+	    
 	    // bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
 	} else if strings.compare ( "load", atom ) == 0 {
-	    // do nothing
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_LOAD_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "drop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2drop", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "dup", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2dup", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "swap", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2swap", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "over", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "rot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "2rot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    // inverted commads
 	} else if strings.compare ( "hrot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    // inverted commads
+	    
+	}else if strings.compare ( "!drop", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!2drop", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!dup", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!2dup", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!swap", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!2swap", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!over", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!rot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "!2rot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    // inverted commads
+	} else if strings.compare ( "!hrot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 
 	    // inverted commads
-	} else if strings.compare ( "!load", atom ) == 0 {
-	} else if strings.compare ( "!drop", atom ) == 0 {
-	} else if strings.compare ( "!2drop", atom ) == 0 {
-	} else if strings.compare ( "!dup", atom ) == 0 {
-	} else if strings.compare ( "!2dup", atom ) == 0 {
-	} else if strings.compare ( "!swap", atom ) == 0 {
-	} else if strings.compare ( "!2swap", atom ) == 0 {
-	} else if strings.compare ( "!over", atom ) == 0 {
-	} else if strings.compare ( "!rot", atom ) == 0 {
-	} else if strings.compare ( "!hrot", atom ) == 0 {
-
-	    
-	} else if strings.compare ( "dot", atom ) == 0 {
-
-
 	} else if strings.compare ( "do", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "end", atom ) == 0 {
-
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    
 	} else if strings.compare ( "add", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.ADD, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "mult", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.MULTIPLY, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "sub", atom ) == 0 {
-	} else if strings.compare ( "while", atom ) == 0 {
-	} else if strings.compare ( "if", atom ) == 0 {
-	    
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.SUBTRACT, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "while", atom ) == 0 { // TODOOOOOO :: WHILEEEEEE
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "if", atom ) == 0 { // maybe need to be removed.
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "not", atom ) == 0 {
-	} else if strings.compare ( "true", atom ) == 0 {
-	} else if strings.compare ( "false", atom ) == 0 {
-
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_NOT, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "write", atom ) == 0 {
-	    
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "end_while", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	} else if strings.compare ( "end", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "symb", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_SYMBOL, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( ".", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "dot", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
+	} else if strings.compare ( "dob", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_BYTECODE, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "nop", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	    /// DO NOTHING
 	} else if strings.compare ( ":end", atom ) == 0 {
-
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.END_INSTRUCTION, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	    
 	} else if type_of ( strc.atoi( atom ) ) == int {
 	    when DEBUG_MODE {
 		fmt.println ("digit :: ", strc.atoi( atom ) )
 	    }
-	    
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
 	} else {
 	    fmt.println ("Error")
 	    fmt.println ("linha :: ", atom, ":",idx)
@@ -335,8 +382,12 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
     fmt.println ( return_data_atoms )
 }
 
+evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) {
 
-queue_ring_language :: proc () {
+    return 
+}
+
+queue_ring_language :: proc ( path : string ) {
     
     ring_bytecode := qu.Queue ( ST_Bytecode ){}
 
@@ -348,11 +399,16 @@ queue_ring_language :: proc () {
     qu.init ( &ring_data, MIN_RING_SIZE )
     defer qu.destroy ( &ring_data )
 
-    parser ( "code.deque", &ring_bytecode )
+    parser ( path, &ring_bytecode )
 
+    for i in 0..<qu.len(ring_bytecode) {
+
+	fmt.println ( qu.get( &ring_bytecode, i ) )
+    }
+    
     fmt.println ( qu.cap ( ring_bytecode ) )
     fmt.println ( qu.len ( ring_bytecode ) )
-    fmt.println ( "data : ", qu.peek_front ( &ring_bytecode )^.param.value )
+    // fmt.println ( "data : ", qu.peek_front ( &ring_bytecode )^.param.value )
     
 }
 
@@ -394,7 +450,8 @@ example_usage_queue :: proc () {
 
 main :: proc () {
 
-    queue_ring_language ()
+    // queue_ring_language ( "code.deque" )
+    queue_ring_language ( "test.deque" )
 
     // test : [dynamic]string = {"some", "stuff", "goingon" }
     // fmt.println ( strings.concatenate(test[:]) )
