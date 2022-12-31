@@ -119,15 +119,19 @@ st_dset :: proc ( tmp : ST_Data, value : raw_value ) -> ST_Data {
 }
 
 
-st_dcreate :: proc (arg_c : raw_value, line_of : int = 0) -> ST_Data {
+st_dcreate :: proc (arg_c : raw_value, line_of : int = 0, symb : ST_Flags = ST_Flags.ST_NIL) -> ST_Data {
 
-    #partial switch in arg_c {
+    if symb == ST_Flags.ST_NIL {
+	#partial switch in arg_c {
 
-    case int: return ST_Data{ value = arg_c, arg = ST_Flags.ST_NUM, enable = true, line = line_of }
-    case bool: return ST_Data{ value = arg_c, arg = ST_Flags.ST_BOOL, enable = true, line = line_of }
-    case string: return ST_Data{ value = arg_c, arg = ST_Flags.ST_ARG, enable = true, line = line_of }
-    case :
+	    case int: return ST_Data{ value = arg_c, arg = ST_Flags.ST_NUM, enable = true, line = line_of }
+	    case bool: return ST_Data{ value = arg_c, arg = ST_Flags.ST_BOOL, enable = true, line = line_of }
+	    case string: return ST_Data{ value = arg_c, arg = ST_Flags.ST_ARG, enable = true, line = line_of }
+	    case :
 
+	}
+    } else {
+	return ST_Data{ value = arg_c, arg = symb, enable = true, line = line_of }
     }
     return ST_Data { enable = true, value = false, arg = ST_Flags.ST_NIL}
 }
@@ -263,11 +267,13 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 	if atom[0] == FIRST_BYTE_RUNE_STRING_REPRESENT { // String
 	    // qu.push_front ( &ring_data, st_dcreate ( atom, idx ) )
 	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
-	} else if atom[0] == FIRST_BYTE_RUNE_SIMBOL_REPRESENT { // Simbol // TODOOO
+	} else if atom[0] == FIRST_BYTE_RUNE_SIMBOL_REPRESENT { 
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
 	    // bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
 	} else if strings.compare ( "load", atom ) == 0 {
 	    // do nothing
 	} else if strings.compare ( "drop", atom ) == 0 {
+	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
 	} else if strings.compare ( "2drop", atom ) == 0 {
 	} else if strings.compare ( "dup", atom ) == 0 {
 	} else if strings.compare ( "2dup", atom ) == 0 {
