@@ -11,6 +11,8 @@ MIN_RING_SIZE :: 64
 MIN_INSTRUCTION_SIZE :: 32
 MAX_STRING_SIZE :: 64
 
+MAX_INSTRUCTIONS :: 42
+
 DEBUG_MODE :: false
 
 raw_value :: distinct union {int, bool, string, f32}
@@ -249,7 +251,7 @@ st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
 
     value_one_digit := value_one.value.(int)
     value_two_digit := value_two.value.(int)
-	
+
     value_sum = value_one_digit + value_two_digit
     
     swap_value := st_dcreate ( value_sum, value_two.line )
@@ -277,113 +279,136 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 	}
 	// if strings.compare ( "push", atom ) == 0 {
 	if atom[0] == FIRST_BYTE_RUNE_STRING_REPRESENT { // String
-	    // qu.push_front ( &ring_data, st_dcreate ( atom, idx ) )
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
+	    // qu.push_back ( &ring_data, st_dcreate ( atom, idx ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if atom[0] == FIRST_BYTE_RUNE_SIMBOL_REPRESENT { 
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx], ST_Flags.ST_SYMBOL), lines_idx[idx] ) )
 	    
 	    // bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, idx ), idx )
 	} else if strings.compare ( "load", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_LOAD_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_LOAD_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "drop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2drop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "dup", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2dup", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "swap", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2swap", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "over", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "rot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "2rot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	    // inverted commads
 	} else if strings.compare ( "hrot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	    // inverted commads
 	    
 	}else if strings.compare ( "!drop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!2drop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_DROP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!dup", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!2dup", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_DUBLE_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!swap", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!2swap", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_SWAP_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!over", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_OVER_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!rot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "!2rot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_TWO_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 	    // inverted commads
 	} else if strings.compare ( "!hrot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_IN_HALF_ROT_VAL, st_dcreate_nil ( lines_idx[idx] ) ) )
 
 	    // inverted commads
 	} else if strings.compare ( "do", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "end", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	    
 	} else if strings.compare ( "add", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.ADD, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.ADD, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "mult", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.MULTIPLY, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.MULTIPLY, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "sub", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.SUBTRACT, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.SUBTRACT, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "while", atom ) == 0 { // TODOOOOOO :: WHILEEEEEE
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "if", atom ) == 0 { // maybe need to be removed.
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "not", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_NOT, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DO_NOT, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "write", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DO_WRITE, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "end_while", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "end", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( "symb", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DO_SYMBOL, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DO_SYMBOL, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	} else if strings.compare ( ".", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "dot", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_STACK, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "dob", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_BYTECODE, st_dcreate_nil ( lines_idx[idx] ) ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.DOT_BYTECODE, st_dcreate_nil ( lines_idx[idx] ) ) )
 	} else if strings.compare ( "nop", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.NO_OP, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	    /// DO NOTHING
 	} else if strings.compare ( ":end", atom ) == 0 {
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.END_INSTRUCTION, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.END_INSTRUCTION, st_dcreate ( false, lines_idx[idx] ), lines_idx[idx] ) )
 	    
 	} else if type_of ( strc.atoi( atom ) ) == int {
 	    when DEBUG_MODE {
 		fmt.println ("digit :: ", strc.atoi( atom ) )
 	    }
-	    qu.push_front ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
 	} else {
 	    fmt.println ("Error")
 	    fmt.println ("linha :: ", atom, ":",idx)
 	}
     }
-    
-    fmt.println ( return_data_atoms )
+
+    when DEBUG_MODE {
+	fmt.println ( return_data_atoms )
+    }
+}
+
+ring_front_add :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) {
+
+    value_one := qu.pop_front ( myQueue_Data )
+    value_two := qu.pop_front ( myQueue_Data )
+
+    new_value := st_dplus ( value_one, value_two )
+
+    qu.push_front ( myQueue_Data, new_value )
+
 }
 
 evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) {
 
+    ins_local : ST_Bytecode
+
+    for idx in 0..<MAX_INSTRUCTIONS {
+
+	ins_local = qu.pop_front ( ring_byte )
+
+	// fmt.print ( ins_local )
+    }
+
+    // ring_front_add (  )
     return 
 }
 
@@ -401,10 +426,15 @@ queue_ring_language :: proc ( path : string ) {
 
     parser ( path, &ring_bytecode )
 
-    for i in 0..<qu.len(ring_bytecode) {
+    when DEBUG_MODE {
+	for i in 0..<qu.len(ring_bytecode) {
 
-	fmt.println ( qu.get( &ring_bytecode, i ) )
+	    fmt.println ( qu.get( &ring_bytecode, i ) )
+	}
     }
+
+
+    evalo ( &ring_bytecode, &ring_data )
     
     fmt.println ( qu.cap ( ring_bytecode ) )
     fmt.println ( qu.len ( ring_bytecode ) )
@@ -450,8 +480,14 @@ example_usage_queue :: proc () {
 
 main :: proc () {
 
+    if len(os.args) == 1 {
+	queue_ring_language ( "test.deque" )
+    } else {
+	queue_ring_language ( os.args[1] )
+    }
     // queue_ring_language ( "code.deque" )
-    queue_ring_language ( "test.deque" )
+    
+    // queue_ring_language ( "stress.deque" )
 
     // test : [dynamic]string = {"some", "stuff", "goingon" }
     // fmt.println ( strings.concatenate(test[:]) )
