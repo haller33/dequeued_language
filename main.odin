@@ -11,8 +11,12 @@ MIN_RING_SIZE :: 64
 MIN_INSTRUCTION_SIZE :: 32
 MAX_STRING_SIZE :: 64
 
+
 MAX_INSTRUCTIONS :: 42
 
+SHOW_LEAK :: false
+
+TEST_MODE :: false
 DEBUG_MODE :: false
 
 raw_value :: distinct union {int, bool, string, f32}
@@ -114,6 +118,82 @@ Error :: struct {
 }
 
 
+Left_Err :: struct { ok : bool, msg : string, line : int, ins_count : int, procedure_name : string, value : any } // union {string, int, bool} }
+
+Either :: union($Right: typeid) {Right, Left_Err} // nil be the no correct return
+
+Either_Struct :: struct ( $R : typeid, $L : typeid ) {
+
+	Right : R,
+	Left  : L,
+}
+
+EitherU :: struct($R: typeid, $L: typeid) {
+    
+    data: union { L, R },
+}
+
+Ok :: bool
+
+ok :: true
+
+not :: proc ( some : bool ) -> bool { return ! some }
+
+is_left :: proc ( typed : any ) -> bool {
+
+    switch i in typed {
+
+    case Left_Err:
+	// return ! typed.ok
+	return true
+    case Ok:
+	return false
+    case :
+	return false
+    }
+}
+
+is_left_ok :: proc ( typed : Either ( Ok ) ) -> bool {
+
+    switch i in typed {
+
+    case Left_Err:
+	// return ! typed.ok
+	return true
+    case Ok:
+	return false
+    case :
+	return false
+    }
+}
+
+not_left :: proc ( typed : Either ( Ok ) ) -> bool {
+    
+    return ! is_left_ok ( typed )
+}
+
+
+not_left_of :: proc ( typed : Either ( Ok ) ) -> bool {
+    
+    return ! is_left_ok ( typed )
+}
+
+is_ring_type :: proc ( value : ST_Data, $T : typeid ) -> bool {
+
+    #partial switch i in value.value {
+
+	case T: return true
+	case :  return false
+    }
+}
+
+std :: proc ( v : Either ( ST_Data ) ) -> ST_Data {
+
+    data : ST_Data
+
+    data = v.(ST_Data)
+    return data
+}
 
 st_dset :: proc ( tmp : ST_Data, value : raw_value ) -> ST_Data {
 
@@ -242,27 +322,9 @@ interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dy
     return dy_atoms, dy_lines_context
 }
 
-
-
-st_dplus :: proc ( value_one, value_two : ST_Data ) -> ST_Data {
-    
-    value_sum : raw_value
-    flag_error : bool = false
-
-    value_one_digit := value_one.value.(int)
-    value_two_digit := value_two.value.(int)
-
-    value_sum = value_one_digit + value_two_digit
-    
-    swap_value := st_dcreate ( value_sum, value_two.line )
-
-    return swap_value
-//    return ST_Data {}
-}
-
 parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 
-    return_data_atoms, lines_idx : = interpret_broke_by_newline_and_space ( file_path )
+    return_data_atoms, lines_idx := interpret_broke_by_newline_and_space ( file_path )
     defer delete ( return_data_atoms )
 
     FIRST_BYTE_RUNE_STRING_REPRESENT :: 34
@@ -374,7 +436,7 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 	    when DEBUG_MODE {
 		fmt.println ("digit :: ", strc.atoi( atom ) )
 	    }
-	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( atom, lines_idx[idx] ), lines_idx[idx] ) )
+	    qu.push_back ( bytecode, bc_dcreate ( ST_INS_Flags.BC_PUSH_VAL, st_dcreate ( strc.atoi ( atom ), lines_idx[idx] ), lines_idx[idx] ) )
 	} else {
 	    fmt.println ("Error")
 	    fmt.println ("linha :: ", atom, ":",idx)
@@ -386,30 +448,118 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
     }
 }
 
-ring_front_add :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) {
+two_stack :: proc ( value_fst, value_snd : ST_Data ) -> Either ( ST_Data ) {
+
+    return st_dcreate_nil ( )
+}
+
+st_dplus :: proc ( value_one, value_two : ST_Data ) -> Either ( ST_Data ) {
+    
+    value_sum : raw_value
+    flag_error : bool = false
+
+    if not ( is_ring_type ( value_one, int ) && is_ring_type ( value_two, int ) ) {
+	return Left_Err { msg = "stack is not of type int", line = value_one.line }
+    }
+
+    value_one_digit : int = value_one.value.(int)
+    value_two_digit : int = value_two.value.(int)
+
+    value_sum = value_one_digit + value_two_digit
+    
+    swap_value := st_dcreate ( value_sum, value_two.line )
+
+    return swap_value
+//    return ST_Data {}
+}
+
+ring_front_add :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
 
     value_one := qu.pop_front ( myQueue_Data )
     value_two := qu.pop_front ( myQueue_Data )
-
+    
     new_value := st_dplus ( value_one, value_two )
+    if is_left ( new_value ) {
+	return Left_Err { msg = "ring data not sum", line = value_one.line, value = new_value }
+    }
+    
+    qu.push_front ( myQueue_Data, std ( new_value ) )
 
-    qu.push_front ( myQueue_Data, new_value )
-
+    // return Left_Err { line = value_one.line, msg = "some error on stack, not haveing space left" }
+    return ok
 }
 
-evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) {
-
+evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
+    
     ins_local : ST_Bytecode
 
-    for idx in 0..<MAX_INSTRUCTIONS {
+    len_current_instructions : int = qu.len ( ring_byte^ )
 
+    INTERPRET: for idx in 0..<len_current_instructions {
+
+	if idx >= MAX_INSTRUCTIONS {
+	    break INTERPRET
+	}
+	
 	ins_local = qu.pop_front ( ring_byte )
+
+	when DEBUG_MODE {
+	    fmt.println ( ins_local )
+	}
+	
+	if ins_local.enable {
+
+	    if ins_local.instruction == ST_INS_Flags.NO_OP {
+		// NO OP
+	    } else if ins_local.instruction == ST_INS_Flags.BC_PUSH_VAL {
+
+		when DEBUG_MODE {
+		    fmt.println ( "PUSH", ins_local.param )
+		}
+		qu.push_back ( ring_data, ins_local.param )
+	    } else if ins_local.instruction == ST_INS_Flags.ADD {
+
+		when DEBUG_MODE {
+
+		    fmt.println ( "INS ADD", ins_local.param )
+		}
+		ret := ring_front_add ( ring_data )
+		
+		if is_left ( ret ) {
+		    
+		    return Left_Err { msg = "not possible parse ADD", ins_count = idx, value = ret }
+		}
+		
+		// qu.push_back ( ring_data, ins_local.param )
+	    } else if ins_local.instruction == ST_INS_Flags.DO_WRITE {
+
+		when DEBUG_MODE {
+
+		    fmt.println ( "INS WRITE", ins_local.param )
+		}
+		ret := qu.peek_front ( ring_data )
+		fmt.println ( ret )
+		
+		// qu.push_back ( ring_data, ins_local.param )
+	    } else if ins_local.instruction == ST_INS_Flags.DOT_STACK {
+
+		when DEBUG_MODE {
+
+		    fmt.println ( "INS DOT", ins_local.param )
+		}
+		ret := qu.pop_front ( ring_data )
+		fmt.println ( ":: ", ret )
+		
+		// qu.push_back ( ring_data, ins_local.param )
+	    } 
+	}
+	
 
 	// fmt.print ( ins_local )
     }
 
     // ring_front_add (  )
-    return 
+    return ok
 }
 
 queue_ring_language :: proc ( path : string ) {
@@ -424,20 +574,16 @@ queue_ring_language :: proc ( path : string ) {
     qu.init ( &ring_data, MIN_RING_SIZE )
     defer qu.destroy ( &ring_data )
 
+    // fmt.print ( ring_bytecode )
+
     parser ( path, &ring_bytecode )
 
-    when DEBUG_MODE {
-	for i in 0..<qu.len(ring_bytecode) {
-
-	    fmt.println ( qu.get( &ring_bytecode, i ) )
-	}
-    }
-
+    // fmt.println ( qu.get( &ring_bytecode, i ) )
 
     evalo ( &ring_bytecode, &ring_data )
-    
-    fmt.println ( qu.cap ( ring_bytecode ) )
-    fmt.println ( qu.len ( ring_bytecode ) )
+
+    // fmt.println ( qu.cap ( ring_bytecode ) )
+    // fmt.println ( qu.len ( ring_bytecode ) )
     // fmt.println ( "data : ", qu.peek_front ( &ring_bytecode )^.param.value )
     
 }
@@ -462,8 +608,11 @@ example_usage_queue :: proc () {
     value_two := qu.pop_front ( &myQueue_Data )
 
     new_value := st_dplus ( value_one, value_two )
+    if is_left ( new_value ) {
+	fmt.println ( Left_Err { msg = "ring data not sum", line = value_one.line, value = new_value } )
+    }
 
-    qu.push_front ( &myQueue_Data, new_value )
+    qu.push_front ( &myQueue_Data, std ( new_value ) )
     
     fmt.println ( qu.get ( &myQueue_Data, 0 ) )
     fmt.println ( qu.get ( &myQueue_Data, 1 ) )
@@ -477,8 +626,84 @@ example_usage_queue :: proc () {
 
 }
 
+testing :: proc () {
+
+    {
+	nn :: proc () -> Either ( Ok ) {
+
+	    return true
+	}
+	
+	nt :: proc () -> Either ( Ok ) {
+
+	    return Left_Err { msg = "some error stuff", line = 42 }
+	}
+
+	s := nt ()
+	
+	if not_left ( s ) {
+	    ss : bool = s.(bool)
+
+	    fmt.println ( s )
+	    fmt.println ( ss )   
+	} else {
+
+	    fmt.println ( "have some problem ", s )
+	}
+	
+    }
+    
+    when false {
+
+	ring_bytecode := qu.Queue ( ST_Bytecode ){}
+
+	qu.init ( &ring_bytecode, MIN_INSTRUCTION_SIZE )
+	defer qu.destroy ( &ring_bytecode )
+	
+	ring_data := qu.Queue ( ST_Data ){}
+	
+	qu.init ( &ring_data, MIN_RING_SIZE )
+	defer qu.destroy ( &ring_data )
+
+	qu.push_back ( myQueue_Data, st_dset ( 42 ) )
+	qu.push_back ( myQueue_Data, st_dset ( 62 ) )
+
+	value_one := qu.pop_front ( myQueue_Data )
+	value_two := qu.pop_front ( myQueue_Data )
+	
+	new_value := st_dplus ( value_one, value_two )
+
+	qu.push_front ( myQueue_Data, new_value )
+    }
+}
 
 main :: proc () {
+
+    when SHOW_LEAK {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+    }
+    
+    when !TEST_MODE {
+	main_thing ( )
+    } else {
+	testing ()
+    }
+
+    when SHOW_LEAK {
+	for _, leak in track.allocation_map {
+	    fmt.printf("%v leaked %v bytes\n", leak.location, leak.size)
+	}
+	for bad_free in track.bad_free_array {
+	    fmt.printf("%v allocation %p was freed badly\n", bad_free.location, bad_free.memory)
+	}
+    }
+    return
+}
+
+
+main_thing :: proc () {
 
     if len(os.args) == 1 {
 	queue_ring_language ( "test.deque" )
