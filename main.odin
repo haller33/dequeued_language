@@ -19,7 +19,7 @@ SHOW_LEAK :: false
 TEST_MODE :: false
 DEBUG_MODE :: false
 
-raw_value :: distinct union {int, bool, string, f32}
+Raw_value :: distinct union {int, bool, string, f32}
 
 TOTAL_INSTRUCTIONS :: 47
 
@@ -93,7 +93,7 @@ ST_Flags :: enum {
 ST_Data :: struct {
     
     enable : bool,
-    value : raw_value,
+    value : Raw_value,
     arg : ST_Flags,
     line : int,
 }
@@ -112,11 +112,16 @@ Error :: struct {
     place : string,
     line : int,
     reason : string,
-    value_expected : raw_value,
-    value_get : raw_value,
+    value_expected : Raw_value,
+    value_get : Raw_value,
     data_st : ST_Data,
 }
 
+process :: struct {
+
+    ring_byte : qu.Queue ( ST_Bytecode ),
+    ring_data : qu.Queue ( ST_Data ),
+}
 
 Left_Err :: struct { ok : bool, msg : string, line : int, ins_count : int, procedure_name : string, value : any } // union {string, int, bool} }
 
@@ -142,7 +147,6 @@ not :: proc ( some : bool ) -> bool { return ! some }
 is_left :: proc ( typed : any ) -> bool {
 
     switch i in typed {
-
     case Left_Err:
 	// return ! typed.ok
 	return true
@@ -151,12 +155,13 @@ is_left :: proc ( typed : any ) -> bool {
     case :
 	return false
     }
+
 }
 
 is_left_ok :: proc ( typed : Either ( Ok ) ) -> bool {
 
     switch i in typed {
-
+	
     case Left_Err:
 	// return ! typed.ok
 	return true
@@ -195,7 +200,7 @@ std :: proc ( v : Either ( ST_Data ) ) -> ST_Data {
     return data
 }
 
-st_dset :: proc ( tmp : ST_Data, value : raw_value ) -> ST_Data {
+st_dset :: proc ( tmp : ST_Data, value : Raw_value ) -> ST_Data {
 
     new_data : ST_Data
     
@@ -210,7 +215,7 @@ st_dcreate_nil :: proc (line_of : int = 0) -> ST_Data {
     return ST_Data{ value = false, arg = ST_Flags.ST_NIL, enable = true, line = line_of }
 }
 
-st_dcreate :: proc (arg_c : raw_value, line_of : int = 0, symb : ST_Flags = ST_Flags.ST_NIL) -> ST_Data {
+st_dcreate :: proc (arg_c : Raw_value, line_of : int = 0, symb : ST_Flags = ST_Flags.ST_NIL) -> ST_Data {
 
     if symb == ST_Flags.ST_NIL {
 	#partial switch in arg_c {
@@ -219,12 +224,11 @@ st_dcreate :: proc (arg_c : raw_value, line_of : int = 0, symb : ST_Flags = ST_F
 	    case bool: return ST_Data{ value = arg_c, arg = ST_Flags.ST_BOOL, enable = true, line = line_of }
 	    case string: return ST_Data{ value = arg_c, arg = ST_Flags.ST_ARG, enable = true, line = line_of }
 	    case :
-
 	}
     } else {
 	return ST_Data{ value = arg_c, arg = symb, enable = true, line = line_of }
     }
-    return ST_Data { enable = true, value = false, arg = ST_Flags.ST_NIL}
+    return ST_Data { enable = true, value = false, arg = ST_Flags.ST_NIL }
 }
 
 bc_dcreate :: proc ( outside_instruction : ST_INS_Flags = ST_INS_Flags.NIL_INS, outside_param : ST_Data, line_of : int = 0) -> ST_Bytecode {
@@ -265,8 +269,12 @@ interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dy
     in_string : bool = false
     in_simbol : bool = false
 
+    it_now : string = string(it)
     
-    for line in strings.split_lines_iterator(&it) {
+    DECODE: for line in strings.split_lines_iterator(&it_now) {
+	if line == "" {
+	    continue DECODE
+	} 
 	if strings.contains ( line, "\"" ) {
 
 	    has_string = true
@@ -276,6 +284,9 @@ interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dy
 	}
 	for atomic in strings.split_after(line, " ") {
 
+	    if atomic == "" {
+		continue DECODE
+	    }
 	    if in_simbol {
 		append ( &tmp_simbol, atomic )
 	    } else if !has_string && !in_string && !has_simbol {
@@ -334,8 +345,6 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
 
     for atom, idx in return_data_atoms {
 
-	fmt.println ( atom )
-	
 	if DEBUG_MODE {
 	    fmt.println ( "l ", lines_idx[idx], " -- ", atom )
 	}
@@ -448,61 +457,120 @@ parser :: proc ( file_path : string, bytecode : ^qu.Queue ( ST_Bytecode ) ) {
     }
 }
 
-two_stack :: proc ( value_fst, value_snd : ST_Data ) -> Either ( ST_Data ) {
+two_stack :: proc ( value_fst, value_snd : ST_Data, fun : proc ( Raw_value, Raw_value ) -> Raw_value, $T: typeid ) -> Either ( ST_Data ) {
 
-    return st_dcreate_nil ( )
+    
+    value_sum : Raw_value
+    flag_error : bool = false
+
+    if not ( is_ring_type ( value_fst, T ) && is_ring_type ( value_snd, T ) ) {
+	return Left_Err { msg = "two values on stack is not of type int", line = value_fst.line }
+    }
+
+    value_one_digit : T = value_fst.value.(T)
+    value_two_digit : T = value_snd.value.(T)
+
+    value_sum = fun ( value_one_digit, value_two_digit )
+    
+    swap_value := st_dcreate ( value_sum, value_fst.line )
+
+    return swap_value
 }
 
 st_dplus :: proc ( value_one, value_two : ST_Data ) -> Either ( ST_Data ) {
     
-    value_sum : raw_value
-    flag_error : bool = false
-
-    if not ( is_ring_type ( value_one, int ) && is_ring_type ( value_two, int ) ) {
-	return Left_Err { msg = "stack is not of type int", line = value_one.line }
-    }
-
-    value_one_digit : int = value_one.value.(int)
-    value_two_digit : int = value_two.value.(int)
-
-    value_sum = value_one_digit + value_two_digit
+    value_sum : Either ( ST_Data )
     
-    swap_value := st_dcreate ( value_sum, value_two.line )
+    sum :: proc ( one, two : Raw_value ) -> Raw_value { return one.(int) + two.(int) }
 
-    return swap_value
-//    return ST_Data {}
+    value_sum = two_stack ( value_one, value_two, sum, int )
+    if is_left ( value_sum ) {
+	return value_sum
+    }
+    
+    return value_sum
 }
 
-ring_front_add :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
 
-    value_one := qu.pop_front ( myQueue_Data )
-    value_two := qu.pop_front ( myQueue_Data )
+st_dsub :: proc ( value_one, value_two : ST_Data ) -> Either ( ST_Data ) {
     
-    new_value := st_dplus ( value_one, value_two )
-    if is_left ( new_value ) {
-	return Left_Err { msg = "ring data not sum", line = value_one.line, value = new_value }
+    value_sum : Either ( ST_Data )
+    
+    sub :: proc ( one, two : Raw_value ) -> Raw_value { return one.(int) - two.(int) }
+
+    value_sum = two_stack ( value_one, value_two, sub, int )
+    if is_left ( value_sum ) {
+	return value_sum
     }
     
+    return value_sum
+}
+
+
+ring_front_sub :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
+
+    
+    if qu.len ( myQueue_Data^ ) < 2 {
+	return Left_Err { msg = "stack with less data on stack" }
+    }
+    value_one := qu.pop_front ( myQueue_Data )
+    value_two := qu.pop_front ( myQueue_Data )
+
+    new_value := st_dsub ( value_one, value_two )
+    if is_left ( new_value ) {
+	return Left_Err { msg = "ring data do not make sum", line = value_one.line, value = new_value }
+    }
+
     qu.push_front ( myQueue_Data, std ( new_value ) )
 
     // return Left_Err { line = value_one.line, msg = "some error on stack, not haveing space left" }
     return ok
 }
 
-evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
+ring_front_add :: proc ( myQueue_Data : ^qu.Queue ( ST_Data ) ) -> Either ( Ok ) {
+
+    
+    if qu.len ( myQueue_Data^ ) < 2 {
+	return Left_Err { msg = "stack with less data on stack" }
+    }
+    value_one := qu.pop_front ( myQueue_Data )
+    value_two := qu.pop_front ( myQueue_Data )
+
+    new_value := st_dplus ( value_one, value_two )
+    if is_left ( new_value ) {
+	return Left_Err { msg = "ring data do not make sum", line = value_one.line, value = new_value }
+    }
+
+    qu.push_front ( myQueue_Data, std ( new_value ) )
+
+    // return Left_Err { line = value_one.line, msg = "some error on stack, not haveing space left" }
+    return ok
+}
+
+evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( ST_Data ) ) -> Either ( ST_Data ) {
     
     ins_local : ST_Bytecode
 
     len_current_instructions : int = qu.len ( ring_byte^ )
+
+    
+    // for idx in 0..<len_current_instructions {
+	// fmt.println ( qu.get(ring_byte, idx ))
+    // }
 
     INTERPRET: for idx in 0..<len_current_instructions {
 
 	if idx >= MAX_INSTRUCTIONS {
 	    break INTERPRET
 	}
+
+	
+	for idx in 0..<qu.len(ring_data^) {
+	    fmt.println ( qu.get(ring_data, idx ))
+	}
 	
 	ins_local = qu.pop_front ( ring_byte )
-
+	
 	when DEBUG_MODE {
 	    fmt.println ( ins_local )
 	}
@@ -521,13 +589,27 @@ evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( S
 
 		when DEBUG_MODE {
 
-		    fmt.println ( "INS ADD", ins_local.param )
+		    fmt.println ( "INS SUB", ins_local.param )
 		}
 		ret := ring_front_add ( ring_data )
 		
-		if is_left ( ret ) {
+		if is_left_ok ( ret ) {
 		    
-		    return Left_Err { msg = "not possible parse ADD", ins_count = idx, value = ret }
+		    return Left_Err { msg = "not possible parse SUB", ins_count = idx, value = ret }
+		}
+		
+		// qu.push_back ( ring_data, ins_local.param )
+	    }  else if ins_local.instruction == ST_INS_Flags.SUBTRACT {
+
+		when DEBUG_MODE {
+
+		    fmt.println ( "INS SUB", ins_local.param )
+		}
+		ret := ring_front_sub ( ring_data )
+		
+		if is_left_ok ( ret ) {
+		    
+		    return Left_Err { msg = "not possible parse SUBTRACT", ins_count = idx, value = ret }
 		}
 		
 		// qu.push_back ( ring_data, ins_local.param )
@@ -537,8 +619,8 @@ evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( S
 
 		    fmt.println ( "INS WRITE", ins_local.param )
 		}
-		ret := qu.peek_front ( ring_data )
-		fmt.println ( ret )
+		ret := qu.pop_front ( ring_data )
+		fmt.println ( ret.value )
 		
 		// qu.push_back ( ring_data, ins_local.param )
 	    } else if ins_local.instruction == ST_INS_Flags.DOT_STACK {
@@ -551,6 +633,16 @@ evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( S
 		fmt.println ( ":: ", ret )
 		
 		// qu.push_back ( ring_data, ins_local.param )
+	    } else if ins_local.instruction == ST_INS_Flags.BC_DUBLE_VAL {
+
+		when DEBUG_MODE {
+
+		    fmt.println ( "INS DUB", ins_local.param )
+		}
+		qu.push_front ( ring_data, qu.peek_front ( ring_data )^ )
+		// fmt.println ( ":: ", ret )
+		
+		// qu.push_back ( ring_data, ins_local.param )
 	    } 
 	}
 	
@@ -559,7 +651,7 @@ evalo :: proc ( ring_byte : ^qu.Queue ( ST_Bytecode ), ring_data : ^qu.Queue ( S
     }
 
     // ring_front_add (  )
-    return ok
+    return st_dcreate_nil ()
 }
 
 queue_ring_language :: proc ( path : string ) {
@@ -580,7 +672,11 @@ queue_ring_language :: proc ( path : string ) {
 
     // fmt.println ( qu.get( &ring_bytecode, i ) )
 
-    evalo ( &ring_bytecode, &ring_data )
+    ret := evalo ( &ring_bytecode, &ring_data )
+    if is_left ( ret ) {
+
+	fmt.println ( ret )
+    }
 
     // fmt.println ( qu.cap ( ring_bytecode ) )
     // fmt.println ( qu.len ( ring_bytecode ) )

@@ -1,4 +1,1 @@
-42
-32
-add
-dot
+3 2 dup write
