@@ -270,6 +270,8 @@ interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dy
     in_simbol : bool = false
 
     it_now : string = string(it)
+
+    atomic_swap : string = ""
     
     DECODE: for line in strings.split_lines_iterator(&it_now) {
 	if line == "" {
@@ -284,35 +286,41 @@ interpret_broke_by_newline_and_space :: proc ( file_path_name : string ) -> ([dy
 	}
 	for atomic in strings.split_after(line, " ") {
 
-	    if atomic == "" {
+	    atomic_swap = atomic
+	    
+	    if not ( strings.contains ( line, " " ) ) {
+		atomic_swap = strings.trim ( line, "\\n" )
+	    }
+	    	    
+	    if atomic_swap == "" {
 		continue DECODE
 	    }
 	    if in_simbol {
-		append ( &tmp_simbol, atomic )
+		append ( &tmp_simbol, atomic_swap )
 	    } else if !has_string && !in_string && !has_simbol {
-		append ( &dy_atoms, strings.trim_space ( atomic ) )
+		append ( &dy_atoms, strings.trim_space ( atomic_swap ) )
 		append ( &dy_lines_context, idx )
 	    } else {
 		if strings.contains ( atomic, "\'" ) {
-		    append ( &tmp_simbol, atomic )
+		    append ( &tmp_simbol, atomic_swap )
 		    in_simbol = true
-		} else if in_string && strings.contains ( atomic, "\"" ) {
-		    append ( &tmp_string, atomic )
+		} else if in_string && strings.contains ( atomic_swap, "\"" ) {
+		    append ( &tmp_string, atomic_swap )
 		    append ( &dy_atoms, strings.trim_space ( strings.concatenate ( tmp_string[:] ) ) )
 		    append ( &dy_lines_context, idx )
 		    tmp_string = {""}
 		    in_string = false
-		} else if in_string || strings.contains ( atomic, "\"" ) {
-		    append ( &tmp_string, atomic )
+		} else if in_string || strings.contains ( atomic_swap, "\"" ) {
+		    append ( &tmp_string, atomic_swap )
 		    in_string = true
 		} else {
-		    append ( &dy_atoms, strings.trim_space ( atomic ) )
+		    append ( &dy_atoms, strings.trim_space ( atomic_swap ) )
 		    append ( &dy_lines_context, idx )
 		}
 	    }
 
 	    when DEBUG_MODE {
-		fmt.println ( atomic, "- " , has_string, " - ", in_string, " # ", has_simbol, " - ", in_simbol )
+		fmt.println ( atomic_swap, " - ", line, " - " , has_string, " - ", in_string, " # ", has_simbol, " - ", in_simbol )
 	    }
 	}
 
